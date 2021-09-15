@@ -4,22 +4,21 @@ import scipy.stats as st
 
 # Calculates the upper and lower bound for the underlying spot price based on volatility
 # probability param: if probability=0.7, probability of stock price in prob_cone is 70%
-def prob_cone(price_ls:list, stock_price:float, volatility:float, days_ahead:int, probability=0.7) -> tuple:
+def prob_cone(stock_price:float, volatility:float, days_ahead:int, probability=0.7, return_stddev=False):
 
     # z_score param indicates the number of std deviations from the mean (i.e. 1.5 std dev covers about 87%)
     # Source: https://stackoverflow.com/questions/20864847/probability-to-z-score-and-vice-versa
     z_score = st.norm.ppf(1-((1-probability)/2))
-    # z_score = st.norm.ppf(1-(probability/2))
-
-    # z_score = st.norm.ppf(1-((1-probability)/2), log_price_array.mean(), log_price_array.std())
 
     # Source: https://www.biocrudetech.com/index.php?option=com_blankcomponent&view=default&Itemid=670
     std_dev = z_score * stock_price * volatility * math.sqrt(days_ahead/252)
 
-    upper_bound = round(stock_price + std_dev, 2)
-    lower_lound = round(stock_price - std_dev, 2)
-
-    return (lower_lound,upper_bound)
+    if return_stddev:
+        return std_dev
+    else:
+        upper_bound = round(stock_price + std_dev, 2)
+        lower_lound = round(stock_price - std_dev, 2)
+        return (lower_lound,upper_bound)
 
 def get_prob(stock_price:float, strike_price:float, volatility:float, days_ahead:int) -> float:
 

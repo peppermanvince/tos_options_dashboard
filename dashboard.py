@@ -17,7 +17,7 @@ from dash.exceptions import PreventUpdate
 import dash_bootstrap_components as dbc
 
 from src.tos_api_calls import tos_search, tos_get_quotes, tos_get_option_chain, tos_get_price_hist
-from src.tos_helper import create_pricelist
+from src.tos_helper import *
 from src.gbm import prob_over, prob_under
 from src.stats import get_hist_volatility, prob_cone, get_prob
 
@@ -239,12 +239,12 @@ app.layout = html.Div([
                                 dcc.Dropdown(
                                         id="memory-vol-period",
                                         options=[
-                                            {"label": "1 Month", "value": "1M"},
-                                            {"label": "3 Months", "value": "3M"},                                           
-                                            {"label": "1 Year", "value": "1Y"}
+                                            {"label": "1 Month", "value": -30},
+                                            {"label": "3 Months", "value": -90},                                           
+                                            {"label": "1 Year", "value": 0}
                                         ],
                                         multi=False,
-                                        value="1M"
+                                        value=-30
                                     )
                                 ],
                                 # style={'width': '30%', 'display': 'inline-block'}
@@ -694,9 +694,9 @@ def on_data_set_ticker_table(n_clicks, hist_data, optionchain_data, page_current
 
 # Update Table based on stored JSON value from API Response call 
 @app.callback(Output('option-chain-table', 'data'),
-              [Input('submit-button-state', 'n_clicks'), Input('storage-historical', 'data'), Input('storage-quotes', 'data'), Input('option-chain-table', "page_current"), Input('option-chain-table', "page_size"), Input('option-chain-table', "sort_by")],
+              [Input('submit-button-state', 'n_clicks'), Input('storage-historical', 'data'), Input('storage-quotes', 'data'), Input('storage-option-chain-all', 'data'), Input('option-chain-table', "page_current"), Input('option-chain-table', "page_size"), Input('option-chain-table', "sort_by")],
               [State('memory-ticker', 'value'), State('memory-contract-type','value'), State('memory-roi', 'value'), State('memory-delta', 'value'),  State('memory-expdays','value'), State('memory-confidence','value'), State('memory-vol-period','value')])
-def on_data_set_table(n_clicks, hist_data, quotes_data, page_current, page_size, sort_by, ticker_ls, contract_type, roi_selection, delta_range, expday_range, confidence_lvl, volatility_period):
+def on_data_set_table(n_clicks, hist_data, quotes_data, optionchain_data, page_current, page_size, sort_by, ticker_ls, contract_type, roi_selection, delta_range, expday_range, confidence_lvl, volatility_period):
     
     # Define empty list to be accumulate into Pandas dataframe (Source: https://stackoverflow.com/questions/10715965/add-one-row-to-pandas-dataframe)
     insert = []
@@ -704,27 +704,77 @@ def on_data_set_table(n_clicks, hist_data, quotes_data, page_current, page_size,
     if hist_data is None:
         raise PreventUpdate 
 
+    current_date = datetime.now()
+    # df_col, df_data = [], []    
+
+    # for ticker in ticker_ls:
+    #     option_chain_response = optionchain_data[ticker]
+    #     # Sanity check on API response data
+    #     if option_chain_response is None or list(option_chain_response.keys())[0] == "error":
+    #         raise PreventUpdate 
+
+    #     df_col, df_data = optionchain_parser(option_chain_response, df_col, df_data) 
+
+    # df_raw = pd.DataFrame(df_data, columns=df_col)
+
+    # # Select columns to analyse
+    # df_process = df_raw[['symbol','expirationDate','putCall','strikePrice','delta','openInterest','totalVolume','bidSize','askSize','bid','multiplier']]
+
+    # df_process['Ticker Symbol'] = df_process['symbol'].str.extract(r'(^\w+)_')
+    # df_process['Expiry Date (Local)'] = df_process['expirationDate'].map(lambda x: datetime.fromtimestamp(x/1000.0))
+    # df_process['Days to Expiry'] = df_process['Expiry Date (Local)'].map(lambda x: (x - current_date).days)
+    # df_process['Stock Price'] = df_process['Ticker Symbol'].map(lambda x: quotes_data[x]['lastPrice'])
+
+    # def _calc_premium(bid, multiplier):
+    #     return round(bid * multiplier,2)
+    # df_process['Premium ($)'] = df_process.apply(lambda x: _calc_premium(x['bid'], x['multiplier']), axis=1)
+
+    # def _calc_roi(premium, strike):
+    #     return round((premium/(strike*100)) *100,2)
+    # df_process['ROI (%)'] = df_process.apply(lambda x: _calc_roi(x['Premium ($)'], x['strikePrice']), axis=1)
+
+    def _get_hist_volatility(ticker_sym, hist_data, volatility_period):
+        # Create and append a list of historical share prices of specified ticker
+        PRICE_LS = create_pricelist(hist_data[ticker_sym])
+        trailing_price_hist = PRICE_LS[volatility_period:]         
+        return get_hist_volatility(trailing_price_hist)
+    # df_process['Historical Volatility'] = df_process.apply(lambda x: _get_hist_volatility(x['Ticker Symbol'],hist_data,volatility_period), axis=1)
+
+    # def _calc_bound(stock_price, hist_volatility, day_diff, confidence_lvl, bound='upper'):
+    #     if bound == 'upper':
+    #         return round(stock_price + prob_cone(stock_price, hist_volatility, day_diff, probability=confidence_lvl, return_stddev=True),2)
+    #     elif bound == 'lower':
+    #         return round(stock_price - prob_cone(stock_price, hist_volatility, day_diff, probability=confidence_lvl, return_stddev=True),2)
+    # df_process['Upper Bound'] = df_process.apply(lambda x: _calc_bound(x['Stock Price'],x['Historical Volatility'],x['Days to Expiry'],confidence_lvl), axis=1)
+    # df_process['Lower Bound'] = df_process.apply(lambda x: _calc_bound(x['Stock Price'],x['Historical Volatility'],x['Days to Expiry'],confidence_lvl, bound='lower'), axis=1)
+    
+    # def _cal_prob(stock_price, strike_price, hist_volatility, day_diff):
+    #     if day_diff > 0:
+    #         return round(get_prob(stock_price, strike_price, hist_volatility, day_diff)*100,2)
+    #     else:
+    #         return 0.0
+    # df_process['Probability (%)'] = df_process.apply(lambda x: _cal_prob(x['Stock Price'], x['Stock Price'], x['Historical Volatility'], x['Days to Expiry']), axis=1)
+
+    # df = df_process.loc[
+    #     (df_process['strikePrice'] > df_process['Stock Price']) & 
+    #     (df_process['Days to Expiry'] <= expday_range) &
+    #     (df_process['ROI (%)'] >= roi_selection) &
+    #     (df_process['delta'].abs() <= delta_range) & 
+    #     (((df_process['putCall']=='CALL') & (df_process['strikePrice'] >= df_process['Upper Bound'])) | ((df_process['putCall'] == "PUT") & (df_process['strikePrice'] <= df_process['Lower Bound'])))
+    # ]
+
+    # # [ticker, expiry_date, option_type, strike_price, day_diff, delta_val, prob_val, open_interest, total_volume, option_premium, bid_size, ask_size, roi_val]
+    # df = df_process[['Ticker Symbol', 'Expiry Date (Local)', 'putCall', "strikePrice", 'Days to Expiry', 'delta', 'Probability (%)', 'openInterest', 'totalVolume', 'Premium ($)', 'bidSize', 'askSize', 'ROI (%)']]
+    # df = df.rename(columns={"putCall": "Option Type", "strikePrice": "Strike Price", "delta":"Delta", "totalVolume": "Total Vol", "openInterest": "Open I/r", "bidSize":"Bid Size", "askSize":"Ask Size"})
+
     for ticker in ticker_ls: 
-        option_chain_response = tos_get_option_chain(ticker, contractType=contract_type, apiKey=API_KEY)  
-        hist_price = hist_data[ticker]
+        option_chain_response = tos_get_option_chain(ticker, contractType=contract_type, apiKey=API_KEY)
 
         # Sanity check on API response data
         if option_chain_response is None or list(option_chain_response.keys())[0] == "error":
             raise PreventUpdate    
 
-        # Create and append a list of historical share prices of specified ticker
-        PRICE_LS = create_pricelist(hist_price)
-
-        trailing_3mth_price_hist = PRICE_LS[-90:]
-        trailing_1mth_price_list = PRICE_LS[-30:]
-
-        # hist_volatility = max([get_hist_volatility(PRICE_LS), get_hist_volatility(trailing_3mth_price_hist), get_hist_volatility(trailing_1mth_price_list)])
-        if volatility_period == "1Y":
-            hist_volatility = get_hist_volatility(PRICE_LS)
-        elif volatility_period == "3M":
-            hist_volatility = get_hist_volatility(trailing_3mth_price_hist)
-        elif volatility_period == "1M":
-            hist_volatility = get_hist_volatility(trailing_1mth_price_list)
+        hist_volatility = _get_hist_volatility(ticker, hist_data, volatility_period)
 
         stock_price = quotes_data[ticker]['lastPrice']
 
@@ -740,11 +790,8 @@ def on_data_set_table(n_clicks, hist_data, quotes_data, page_current, page_size,
                     ask_size = strike[0]['askSize']  
                     delta_val = strike[0]['delta']
                     total_volume = strike[0]['totalVolume']  
-                    open_interest= strike[0]['openInterest']  
-
-                    # strike[0]['daysToExpiration'] can return negative numbers to mess up prob_cone calculations
-                    # day_diff = strike[0]['daysToExpiration'] 
-                    current_date = datetime.now()
+                    open_interest= strike[0]['openInterest'] 
+                    
                     day_diff = (expiry_date - current_date).days
                     if day_diff < 0:
                         continue
@@ -752,7 +799,7 @@ def on_data_set_table(n_clicks, hist_data, quotes_data, page_current, page_size,
                     option_premium = round(strike[0]['bid'] * strike[0]['multiplier'],2)
                     roi_val = round((option_premium/(strike_price*100)) *100,2)
 
-                    lower_bound, upper_bound = prob_cone(PRICE_LS, stock_price, hist_volatility, day_diff, probability=confidence_lvl)
+                    lower_bound, upper_bound = prob_cone(stock_price, hist_volatility, day_diff, probability=confidence_lvl)
 
                     if day_diff > 0:
                         prob_val = round(get_prob(stock_price, strike_price, hist_volatility, day_diff)*100,2)
@@ -840,8 +887,7 @@ def on_data_set_price_history(hist_data, tab, ticker_ls):
 def on_data_set_prob_cone(hist_data, quotes_data, tab, ticker_ls, contract_type, expday_range, confidence_lvl):
     
     # Define empty list to be accumulate into Pandas dataframe (Source: https://stackoverflow.com/questions/10715965/add-one-row-to-pandas-dataframe)
-    insert = []   
-    data = [] 
+    insert = []  
 
     if hist_data is None or quotes_data is None:
         raise PreventUpdate 
@@ -859,7 +905,7 @@ def on_data_set_prob_cone(hist_data, quotes_data, tab, ticker_ls, contract_type,
 
             for i_day in range(expday_range + 1):
 
-                lower_bound, upper_bound = prob_cone(PRICE_LS, stock_price, hist_volatility, i_day, probability=confidence_lvl)
+                lower_bound, upper_bound = prob_cone(stock_price, hist_volatility, i_day, probability=confidence_lvl)
 
                 insert.append([ticker, (date.today() + timedelta(days=i_day)), stock_price, lower_bound, upper_bound, i_day])
 
@@ -867,7 +913,7 @@ def on_data_set_prob_cone(hist_data, quotes_data, tab, ticker_ls, contract_type,
 
             bin_size = 10
 
-            x_ls, y_ls = [], []
+            data, x_ls, y_ls = [], [], []
 
             # Using pop stdev is correct: We have the entire popn data for N, thus we dont have to use sample std dev
             std_dev = stat.pstdev(PRICE_LS)
@@ -897,14 +943,6 @@ def on_data_set_prob_cone(hist_data, quotes_data, tab, ticker_ls, contract_type,
     if tab == 'prob_cone_tab': # Historical Volatility
         df_cols = ['Ticker Symbol', 'Day', 'Stock Price', 'Lower Bound', 'Upper Bound', 'Days to Expiry']
         df = pd.DataFrame(insert, columns=df_cols)
-        # fig = go.Figure(
-        #         data=[go.Candlestick(
-        #             x=df['Day'],
-        #             open=df['Stock Price'],
-        #             high=df['Upper Bound'],
-        #             low=df['Lower Bound'],
-        #             close=df['Stock Price']
-        #         )]).update_layout(xaxis_rangeslider_visible=False)
 
         fig = go.Figure()
         for ticker in ticker_ls: 
@@ -952,82 +990,58 @@ def on_data_set_open_interest_vol(optionchain_data, ticker_ls, expday_range, con
     
     if optionchain_data is None:
         raise PreventUpdate
-    
-    insert = []
+
     current_date = datetime.now()
+    df_col, df_data = [], []
 
     for ticker in ticker_ls:
         option_chain_response = optionchain_data[ticker]
-        for option_chain_type in ['call','put']:
-            for exp_date in option_chain_response[f'{option_chain_type}ExpDateMap'].values():
-                for strike in exp_date.values():
+        df_col, df_data = optionchain_parser(option_chain_response, df_col, df_data)
 
-                    expiry_date = datetime.fromtimestamp(strike[0]["expirationDate"]/1000.0)
-                    strike_price = strike[0]['strikePrice']
-                    option_type = strike[0]['putCall']
-                    total_volume = strike[0]['totalVolume']  
-                    open_interest= strike[0]['openInterest']  
-                    
-                    day_diff = (expiry_date - current_date).days
-                    if day_diff < 0:
-                        continue
+    df_raw = pd.DataFrame(df_data, columns=df_col)
 
-                    if day_diff <= expday_range:
-                        option_chain_row = [ticker, expiry_date, option_type, day_diff, strike_price, open_interest, total_volume]
-                        if all(col != None for col in option_chain_row):
-                            insert.append(option_chain_row)
+    # Select columns to analyse
+    df_process = df_raw[['symbol','expirationDate','putCall','strikePrice','totalVolume','openInterest']]
 
-    df_cols = ['Ticker Symbol', 'Expiry Date', 'Option Type', 'Days to Expiry', 'Strike Price', 'Open Interest', 'Total Volume']
-    df = pd.DataFrame(insert, columns=df_cols)
+    df_process['Ticker Symbol'] = df_process['symbol'].str.extract(r'(^\w+)_')
+    df_process['Expiry Date'] = df_process['expirationDate'].map(lambda x: datetime.fromtimestamp(x/1000.0))
+    df_process['Days to Expiry'] = df_process['Expiry Date'].map(lambda x: (x - current_date).days) 
+
+    df = df_process[['Ticker Symbol', 'putCall', 'Days to Expiry', 'strikePrice', 'totalVolume', 'openInterest']]
+    df = df.rename(columns={"putCall": "Option Type", "strikePrice": "Strike Price", "totalVolume": "Total Volume", "openInterest": "Open Interest"})
+
+    df = df.loc[df['Days to Expiry'] <= expday_range]    
 
     fig = go.Figure()
 
-    for ticker in ticker_ls:
-        exp_days_ls = df['Days to Expiry'].to_list()
+    # Simplify search for Open Interest/Volume Graph: Set PUT option as default option type
+    if contract_type == 'ALL':
+        contract_type = 'PUT'
 
-        if option_type == 'ALL':
-            fig.add_trace(go.Scatter(
-                        x=df.loc[(df['Ticker Symbol']==ticker) & (df['Option Type']=='PUT') & (df['Days to Expiry']==max(exp_days_ls)),['Strike Price']].squeeze(), 
-                        y=df.loc[(df['Ticker Symbol']==ticker) & (df['Option Type']=='PUT') & (df['Days to Expiry']==max(exp_days_ls)),['Total Volume']].squeeze(),
-                        mode='lines+markers',
-                        name=f'{ticker} - Total Volume',
-                        line_shape='spline')
-                    )
-            fig.add_trace(go.Bar(
-                        x=df.loc[(df['Ticker Symbol']==ticker) & (df['Option Type']=='PUT') & (df['Days to Expiry']==max(exp_days_ls)),['Strike Price']].squeeze(),
-                        y=df.loc[(df['Ticker Symbol']==ticker) & (df['Option Type']=='PUT') & (df['Days to Expiry']==max(exp_days_ls)),['Open Interest']].squeeze(),
-                        name=f'{ticker} - Open Interest')
-                    )
-        else:
-            # Note: .squeeze() is to convert Dataframe into Series format after df.loc()
-            fig.add_trace(go.Scatter(
-                        x=df.loc[(df['Ticker Symbol']==ticker) & (df['Option Type']==contract_type) & (df['Days to Expiry']==max(exp_days_ls)),['Strike Price']].squeeze(), 
-                        y=df.loc[(df['Ticker Symbol']==ticker) & (df['Option Type']==contract_type) & (df['Days to Expiry']==max(exp_days_ls)),['Total Volume']].squeeze(),
-                        mode='lines+markers',
-                        name=f'{ticker} - Total Volume',
-                        line_shape='spline')
-                    )
-            fig.add_trace(go.Bar(
-                        x=df.loc[(df['Ticker Symbol']==ticker) & (df['Option Type']==contract_type) & (df['Days to Expiry']==max(exp_days_ls)),['Strike Price']].squeeze(),
-                        y=df.loc[(df['Ticker Symbol']==ticker) & (df['Option Type']==contract_type) & (df['Days to Expiry']==max(exp_days_ls)),['Open Interest']].squeeze(),
-                        name=f'{ticker} - Open Interest')
-                    )
-    if option_type == 'ALL':
-        fig.update_layout(
-            title=f'Open Interest/Volume - PUT',
-            title_x=0.5, # Centre the title text
-            xaxis_title='Strike Price',
-            yaxis_title='No. of Contracts',
-            plot_bgcolor='rgb(256,256,256)' # White Plot background
-        )
-    else:
-        fig.update_layout(
-            title=f'Open Interest/Volume - {contract_type}',
-            title_x=0.5, # Centre the title text
-            xaxis_title='Strike Price',
-            yaxis_title='No. of Contracts',
-            plot_bgcolor='rgb(256,256,256)' # White Plot background
-        )
+    for ticker in ticker_ls:
+        exp_days_ls = df['Days to Expiry'].to_list()        
+
+        # Note: .squeeze() is to convert Dataframe into Series format after df.loc()
+        fig.add_trace(go.Scatter(
+                    x=df.loc[(df['Ticker Symbol']==ticker) & (df['Option Type']==contract_type) & (df['Days to Expiry']==max(exp_days_ls)),['Strike Price']].squeeze(), 
+                    y=df.loc[(df['Ticker Symbol']==ticker) & (df['Option Type']==contract_type) & (df['Days to Expiry']==max(exp_days_ls)),['Total Volume']].squeeze(),
+                    mode='lines+markers',
+                    name=f'{ticker} - Total Volume',
+                    line_shape='spline')
+                )
+        fig.add_trace(go.Bar(
+                    x=df.loc[(df['Ticker Symbol']==ticker) & (df['Option Type']==contract_type) & (df['Days to Expiry']==max(exp_days_ls)),['Strike Price']].squeeze(),
+                    y=df.loc[(df['Ticker Symbol']==ticker) & (df['Option Type']==contract_type) & (df['Days to Expiry']==max(exp_days_ls)),['Open Interest']].squeeze(),
+                    name=f'{ticker} - Open Interest')
+                )
+
+    fig.update_layout(
+        title=f'Open Interest/Volume - {contract_type}',
+        title_x=0.5, # Centre the title text
+        xaxis_title='Strike Price',
+        yaxis_title='No. of Contracts',
+        plot_bgcolor='rgb(256,256,256)' # White Plot background
+    )
     return fig
 
 if __name__ == '__main__':
