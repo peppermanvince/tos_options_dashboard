@@ -5,7 +5,7 @@ import numpy as np
 import pandas as pd
 import statistics as stat
 from datetime import datetime, timedelta, date
-
+from plotly.subplots import make_subplots
 import plotly.graph_objects as go
 
 import dash  # (version 1.12.0) pip install dash
@@ -280,7 +280,7 @@ app.layout = html.Div([
             dcc.Tabs(id='tabs_price_chart', value='price_tab_1', children=[
                 dcc.Tab(label='1 Day', value='price_tab_1', className='custom-tab'),
                 dcc.Tab(label='5 Days', value='price_tab_2', className='custom-tab'),
-                dcc.Tab(label='1 Month', value='price_tab_3', className='custom-tab'),
+                dcc.Tab(label='3 Months', value='price_tab_3', className='custom-tab'),
                 dcc.Tab(label='1 Year', value='price_tab_4', className='custom-tab'),
                 dcc.Tab(label='5 Years', value='price_tab_5', className='custom-tab'),
             ]),
@@ -851,11 +851,11 @@ def on_data_set_price_history(hist_data, tab, ticker_ls):
     for ticker in ticker_ls:
 
         if tab == 'price_tab_1': # 1 Day
-            hist_price = tos_get_price_hist(ticker, periodType='day', period=1, frequencyType='minute', frequency=1, apiKey=API_KEY)  
+            hist_price = tos_get_price_hist(ticker, periodType='day', period=1, frequencyType='minute', frequency=5, apiKey=API_KEY)  
         elif tab == 'price_tab_2': # 5 Days
-            hist_price = tos_get_price_hist(ticker, periodType='day', period=5, frequencyType='minute', frequency=5, apiKey=API_KEY)
-        elif tab == 'price_tab_3': # 1 Month
-            hist_price = tos_get_price_hist(ticker, periodType='month', period=1, frequencyType='daily', frequency=1, apiKey=API_KEY)
+            hist_price = tos_get_price_hist(ticker, periodType='day', period=5, frequencyType='minute', frequency=15, apiKey=API_KEY)
+        elif tab == 'price_tab_3': # 3 Months
+            hist_price = tos_get_price_hist(ticker, periodType='month', period=3, frequencyType='daily', frequency=1, apiKey=API_KEY)
         elif tab == 'price_tab_4': # 1 Year
             hist_price = hist_data[ticker]
 
@@ -864,27 +864,64 @@ def on_data_set_price_history(hist_data, tab, ticker_ls):
         elif tab == 'price_tab_5': # 5 Years
             hist_price = tos_get_price_hist(ticker, periodType='year', period=5, frequencyType='daily', frequency=1, apiKey=API_KEY)  
 
-        for candle in hist_price['candles']:
+        hist_price_df = pd.DataFrame(hist_price['candles'])
+        hist_price_df['datetime']=hist_price_df['datetime'].apply(lambda x: datetime.fromtimestamp(x/1000.0))
 
-            a = aggregation[str(ticker)]
+        # Create figure with secondary y-axis
+        fig = make_subplots(specs=[[{"secondary_y": True}]])
+
+        # include candlestick with rangeselector
+        fig.add_trace(go.Candlestick(
+                        name=str(ticker),
+                        x=hist_price_df['datetime'],
+                        open=hist_price_df['open'], 
+                        high=hist_price_df['high'],
+                        low=hist_price_df['low'], 
+                        close=hist_price_df['close']),
+                    secondary_y=True)
+
+        fig.update_layout(
+            title='Price History',
+            yaxis_title='Trading Volume',
+            yaxis2_title="Stock Price"
+        )
+
+        # include a go.Bar trace for volumes
+        fig.add_trace(go.Bar(
+                    name=str(ticker)+' Volume',
+                    x=hist_price_df['datetime'], 
+                    y=hist_price_df['volume'],
+                    marker=dict(
+                        color='MediumPurple',
+                        opacity=0.7)
+                    ),
+                    secondary_y=False)
+
+        fig.update_layout(xaxis_rangeslider_visible=False)
+        fig.layout.yaxis2.showgrid=False
+        return fig
+
+    #     for candle in hist_price['candles']:
+
+    #         a = aggregation[str(ticker)]
             
-            a['name'] = str(ticker)
-            a['mode'] = 'lines'
+    #         a['name'] = str(ticker)
+    #         a['mode'] = 'lines'
 
-            # Price on y-axis, Time on x-axis
-            a['y'].append(candle['close'])
-            a['x'].append(datetime.fromtimestamp(candle['datetime']/1000.0)) 
+    #         # Price on y-axis, Time on x-axis
+    #         a['y'].append(candle['close'])
+    #         a['x'].append(datetime.fromtimestamp(candle['datetime']/1000.0)) 
     
-    return {
-        'layout':{'title': {'text':'Price History'}},
-        'data': [x for x in aggregation.values()]
-    }
+    # return {
+    #     'layout':{'title': {'text':'Price History'}},
+    #     'data': [x for x in aggregation.values()]
+    # }
 
 # Update Prob Cone Graph based on stored JSON value from API Response call 
 @app.callback(Output('prob_cone_chart', 'figure'),
               [Input('storage-historical', 'data'), Input('storage-quotes', 'data'), Input('tabs_prob_chart', 'value')],
-              [State('memory-ticker', 'value'), State('memory-contract-type','value'),  State('memory-expdays','value'), State('memory-confidence','value')])
-def on_data_set_prob_cone(hist_data, quotes_data, tab, ticker_ls, contract_type, expday_range, confidence_lvl):
+              [State('memory-ticker', 'value'),  State('memory-expdays','value'), State('memory-confidence','value')])
+def on_data_set_prob_cone(hist_data, quotes_data, tab, ticker_ls, expday_range, confidence_lvl):
     
     # Define empty list to be accumulate into Pandas dataframe (Source: https://stackoverflow.com/questions/10715965/add-one-row-to-pandas-dataframe)
     insert = []  
